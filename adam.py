@@ -3,8 +3,6 @@ from PyQt5.QtWidgets import * #PyQt import
 from PyQt5.QtGui import *
 from PyQt5 import uic
 import PyQt5
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5 import QtCore, QtGui
 import pics_rc
@@ -18,15 +16,21 @@ from sensor_msgs.msg import JointState
 from sensor_msgs.msg import Image
 import numpy as np
 import time
+from datetime import datetime as dt
 import subprocess
 from subprocess import Popen, PIPE
 import os
 from authManager import authentication_server
+
+import adam_addswitch
+from adam_addswitch import addswitchWindow
+
 login_form = uic.loadUiType("adam-login2.ui")[0]
-main_form = uic.loadUiType("adam-main.ui")[0]
+main_form = uic.loadUiType("adam-main-dark.ui")[0]
 
-glNode = 0
+categorynum = 5
 
+activatedep = {'roscore' : 0, 'ROSbridge' : 0}
 
 
 class loginWindow(QMainWindow, login_form):
@@ -129,15 +133,11 @@ class loginWindow(QMainWindow, login_form):
 
 
 	def credentialCheck(self, id=None, pwd=None):
-		global glNode
-		#self.id = id if id else self.lineEdit.text()
 		self.pwd = pws if pwd else self.lineEdit_2.text()
-
 		try:
 			returnVal = self.userDB.idValidation(self.lineEdit_2.text())
 			print(returnVal)
 			if returnVal:
-
 				self.mW = mainWidnow(self.userDB.retrieve(returnVal, 'all'))
 				self.mW.show()
 				self.hide()
@@ -156,7 +156,7 @@ class loginWindow(QMainWindow, login_form):
 class rosbagRecord():
 	# https://gist.github.com/marco-tranzatto/8be49b81b1ab371dcb5d4e350365398a
 	def __init__(self, comms, parent = None):
-		
+
 		self.main = parent
 		self.working = True
 		#self.commands = comms
@@ -210,6 +210,9 @@ class mainWidnow(QMainWindow, main_form):
 		self.adms_subscriber_class.sig_wheel.connect(self.wheel_speed)
 		self.adms_subscriber_class.sig_apsbps.connect(self.apsbpsFeed)
 		self.adms_subscriber_class.sig_gear.connect(self.gearPosition)
+
+		self.adms_subscriber_class.sig_steer.connect(self.steeringHandle)
+
 		self.adms_subscriber_class.sig_estop.connect(self.estopVisual)
 		self.adms_subscriber_class.sig_auto.connect(self.autostandby)
 		self.adms_subscriber_class.sig_override.connect(self.overRide)
@@ -234,20 +237,97 @@ class mainWidnow(QMainWindow, main_form):
 		self.selectAll.clicked.connect(self.checkAll)
 		self.recordBtn.clicked.connect(self.recordBagbyBtn)
 		self.recordFlag = False
+		self.cantime = time.time()
+		self.visualtime = time.time()
 
 		self.setupBtn.clicked.connect(self.setupCar)
 
-		#########
-		
+		#######Switch Part#######
+		self.amw = addswitchWindow()
+		self.switchNum = 0 # shows how many switch 'now'
+		self.switchnumarr = {'Vision' : 0, 'LIDAR' : 0, 'GPS' : 0, 'Driving' : 0, 'HW' : 0, 'Page' : 0}
+		f = open("ADMS_switch_list.txt", 'r')
+		while True:
+			line = f.readline()
+			if not line:
+				break
+			else:
+				self.switchNum += 1
+		self.onimg = QPixmap('on.png')
+		self.onimg = self.onimg.scaled(51, 51, Qt.KeepAspectRatio)
+		self.offimg = QPixmap('off.png')
+		self.offimg = self.offimg.scaled(51, 51, Qt.KeepAspectRatio)
 
-		##########################FUCK
-		'''
-		item = QtGui.QListWidgetItem()
-		item.setText(QtGui.QApplication.translate("Dialog", x, None,	QtGui.QApplication.UnicodeUTF8))
-		item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-		item.setCheckState(QtCore.Qt.Unchecked)
-		self.listWidget.addItem(item)
-		'''
+		f.close()
+
+		self.addSwitchBtn.clicked.connect(self.popAddSwitch)
+		self.amw.buttonBox.button(QDialogButtonBox.Ok).clicked.connect(self.addtoMainWin)
+		#######Switch Part#######
+
+
+	def addtoMainWin(self):
+		category = self.amw.category.currentText()
+		switchname = self.amw.switchname.text()
+		programname = self.amw.programname.text()
+		command = self.amw.command.text()
+		print(category, switchname, programname, command)
+		if (switchname is None) or (programname is None) or (command is None):
+			print("FILL THE BLANK(S)!")
+			return
+		if not (self.amw.checkBox.checkState() or self.amw.checkBox_2.checkState() or self.amw.checkBox_3.checkState()):
+			print("SELECT ENVIRONMENT!")
+			return
+		if not (self.amw.checkBox_4.checkState() or self.amw.checkBox_5.checkState()):
+			print("SELECT DEPENCDENCY(S)!")
+			return
+		f = open("ADMS_switch_list.txt", 'a')
+		f.write(str(category)+'|'+str(switchname)+'|'+str(programname)+'|'+str(command)+'|')
+		if self.amw.checkBox.checkState() == 2: # 2 == checked!
+			f.write("ROS1&")
+		if self.amw.checkBox_2.checkState() == 2: # 2 == checked!
+			f.write("ROS2&")
+		if self.amw.checkBox_3.checkState() == 2: # 2 == checked!
+			f.write("sh")
+		f.write('|')
+		if self.amw.checkBox_4.checkState() == 2: # 2 == checked!
+			f.write("roscore&")
+		if self.amw.checkBox_5.checkState() == 2: # 2 == checked!
+			f.write("ROSbridge")
+		f.write("\n")
+		f.close()
+
+		self.switchTabBox.setCurrentWidget(self.switchTabBox.findChild(QWidget, category))
+		#grid layout self.switchTabBox.grid
+		switchidx = self.switchnumarr.get(category)
+		row = switchidx//5
+		col = switchidx-5*row
+
+		if category == 'Vision':
+			grid = self.gridLayoutVision
+		elif category == 'LIDAR':
+			grid = self.gridLayoutLIDAR
+		elif category == 'GPS':
+			grid = self.gridLayoutGPS
+		elif category == 'Driving':
+			grid = self.gridLayoutDriving
+		else:
+			grid = self.gridLayoutHW
+
+		print('count : ', grid.count())
+		if self.switchnumarr[category]>14:
+			frame = QFrame()
+			frame.setObjectName('frame'+str(category)+str(self.switchnumarr[category]))
+			grid.addWidget(frame, col, row)
+		else:
+			frame = eval('self.frame'+str(category)+str(self.switchnumarr[category]))
+		framelbx = switchLayout(category, switchidx, switchname, self.switchNum, programname)
+		frame.setLayout(framelbx)
+		self.switchNum += 1
+		self.switchnumarr[category] += 1
+
+	def popAddSwitch(self):
+		print('switch # :', self.switchNum)
+		self.amw.show()
 
 	def setupCar(self):
 		### SetupCar (v0.1 for LatteAlpha Environ)
@@ -258,7 +338,8 @@ class mainWidnow(QMainWindow, main_form):
 
 		if reply == QMessageBox.Yes:
 			if self.recordFlag:
-				killComms = ". /opt/ros/melodic/setup.bash && rosnode kill /adam_record"
+				killComms = ". /opt/ros/melodic/setup.bash && rosnode kill /adam_record && rosnode kill /ros_bridge && killall -9 roscore && killall -9 rosmaster"
+				print(killComms)
 				subprocess.Popen(killComms, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
 			event.accept()
 			print('Window closed')
@@ -273,7 +354,7 @@ class mainWidnow(QMainWindow, main_form):
 			self.recordFlag = False
 			self.recordBtn.setText('운행 기록 시작 (10km/h 이상 주행시 자동 시작)')
 		else:   # Now not recording.... should start recording
-			command = "source /opt/ros/melodic/setup.bash && rosbag record"			
+			command = "source /opt/ros/melodic/setup.bash && rosbag record"
 			# Save directory
 			# base directory is ~/rosbagAdam
 			dir_ = self.saveDir.text()
@@ -292,9 +373,9 @@ class mainWidnow(QMainWindow, main_form):
 					numofTopic += 1
 			if not numofTopic:
 				buttonReply=QMessageBox.warning(self, "ROSBAG Record Fail", "Make sure the Topic is checked at least one!", QMessageBox.Ok)
-				return 
-                
-            
+				return
+
+
 			print(command)
 			#try:
 
@@ -308,6 +389,7 @@ class mainWidnow(QMainWindow, main_form):
 
 
 	def doorOpen(self, msg):
+		self.timetable.setItem(0, 0, QTableWidgetItem(str(self.cantime)))
 		# 0: fl, 1: fr
 		# 2: rl, 3: rr
 		if msg[0]:
@@ -321,11 +403,15 @@ class mainWidnow(QMainWindow, main_form):
 		if msg[2]:
 			self.doorrl.show()
 		else:
-			self.doorrl.close()			
+			self.doorrl.close()
 		if msg[3]:
 			self.doorrr.show()
 		else:
 			self.doorrr.close()
+		self.visualtime = time.time()
+		self.timetable.setItem(1, 0, QTableWidgetItem(str(self.visualtime)))
+		delaytime = self.visualtime - self.cantime
+		self.timetable.setItem(2, 0, QTableWidgetItem(str(delaytime)))
 
 	def trunkOpen(self, msg):
 		if msg:
@@ -369,16 +455,16 @@ class mainWidnow(QMainWindow, main_form):
 			self.override.setText('Driving Mode: Auto')
 			self.override.setStyleSheet("font-weight: normal; color: black")
 		elif msg == 2:
-			self.override.setText('Driving Mode: Steer')
+			self.override.setText('Manual Mode by "Steer"')
 			self.override.setStyleSheet("font-weight: normal; color: black")
 		elif msg == 3:
-			self.override.setText('Driving Mode: Accel')
+			self.override.setText('Manual Mode Mode by "Accel"')
 			self.override.setStyleSheet("font-weight: normal; color: black")
 		elif msg == 4:
-			self.override.setText('Driving Mode: Brake')
+			self.override.setText('Manual Mode by "Brake"')
 			self.override.setStyleSheet("font-weight: normal; color: black")
 		elif msg == 6:
-			self.override.setText('Driving Mode: ESTOP')
+			self.override.setText('Manual Mode by "ESTOP"')
 			self.override.setStyleSheet("font-weight: bold; color: red")
 		else:
 			print("WRONG VALUE!!!!!")
@@ -416,6 +502,10 @@ class mainWidnow(QMainWindow, main_form):
 		else:
 			self.estopBox.setStyleSheet("background-color: rgba(255, 255, 255, 10)")
 
+	def steeringHandle(self, msg):
+		self.steerVal.setText('Steering :' + str(msg))
+		self.steerbar.setValue(msg)
+
 	def gearPosition(self, msg):
 		if msg == 0:   # Parking
 			self.gearSlider.setValue(99)
@@ -434,7 +524,7 @@ class mainWidnow(QMainWindow, main_form):
 		self.feedbacktable.setItem(2, 1, QTableWidgetItem(str(msg[1])))
 		self.feedbacktable.setItem(2, 2, QTableWidgetItem(str(msg[11])))
 
-	
+
 	def checkAll(self):
 		#Fuck dataChanged
 		checkeditem = 0
@@ -484,6 +574,7 @@ class mainWidnow(QMainWindow, main_form):
 
 	@pyqtSlot(list)
 	def wheel_speed(self, msg):
+		self.cantime = time.time()
 		tot_speed = msg[0]
 		if tot_speed >= 10:   ## if car is faster than 10km/h, start recording
 			if not self.recordFlag:
@@ -491,7 +582,6 @@ class mainWidnow(QMainWindow, main_form):
 				#self.recordFlag = True
 				##start Thread
 				#emit signal of pressing btn
-
 		fl, fr, rl, rr = msg[1:]
 		self.rl_speed.setText("RL :" + str(round(rl, 2)))
 		self.fl_speed.setText("FL :" + str(round(fl, 2)))
@@ -499,14 +589,108 @@ class mainWidnow(QMainWindow, main_form):
 		self.rr_speed.setText("RR :" + str(round(rr, 2)))
 		self.velocityLcd.display(int(tot_speed))
 
+class QLabel_clickable(QLabel):
+	clicked = pyqtSignal()
+	def __init__(self, parent = None):
+		QLabel.__init__(self, parent)
+	def mousePressEvent(self, ev):
+		self.clicked.emit()
 
+class switchLayout(QHBoxLayout):
+	def __init__(self, category, switchidx, switchname, switchNum, programname):
+		super().__init__()
+		#self.category = category
+		self.linenum = switchNum
+		self.programname = programname # for sh
+		self.switchon = False
+		self.onimg = QPixmap('on.png')
+		self.onimg = self.onimg.scaled(51, 51, Qt.KeepAspectRatio)
+		self.offimg = QPixmap('off.png')
+		self.offimg = self.offimg.scaled(51, 51, Qt.KeepAspectRatio)
+		self.switch = QLabel_clickable()
+		self.switch.resize(51, 51)
+		self.switch.setPixmap(self.offimg)
+		self.switchlabel = QLabel(str(switchname))
+		self.switchlabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+		self.switch.setObjectName('switch'+category+str(switchidx))
+		self.switchlabel.setObjectName('switch'+category+str(switchidx)+'lbl')
+		self.addWidget(self.switch)
+		self.addWidget(self.switchlabel)
+		self.switch.clicked.connect(self.onoff)
+	def onoff(self):
+		if self.switchon: # on -> off
+			self.activateutil(self.switchon)
+			self.switch.setPixmap(self.offimg)
+			self.switchon = False
+		else:
+			self.activateutil(self.switchon)
+			self.switch.setPixmap(self.onimg)
+			self.switchon = True
+	def activateutil(self, state):
+		f = open("ADMS_switch_list.txt", 'r')
+		print('linenum :', self.linenum)
+		for i, line in enumerate(f):
+			if i == self.linenum:
+				linesplited = line.split('|')
+				#env(ROS1&ROS2&sh)
+				comms = ""
+				env = linesplited[4].split('&')
+				print('env :', env)
+				if not self.switchon:
+					for i in range(len(env)):
+						if env[i] == 'ROS1':
+							#ros1 activate
+							comms = comms+". /opt/ros/melodic/setup.bash"
+						if env[i] == 'ROS2':
+							#ros2 activate
+							if len(comms) != 0:
+								comms = comms+" && "
+							comms = comms+". /opt/ros/dashing/setup.bash"
+						if env[i] == 'sh': #"(sh)
+							if len(comms) != 0:
+								comms = comms+" && "
+							comms = comms+"sh "+self.programname
+					#dependency(roscore&ROSbridge)
+					dep = linesplited[5].split('&')
+					for i in range(len(dep)):
+						if (dep[i] == 'roscore') and (activatedep.get('roscore', -1) == 0):
+							#ros1 activate
+							commsdep = ". /opt/ros/melodic/setup.bash && roscore"
+							subprocess.Popen(commsdep, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+							activatedep['roscore']+=1
+						if (dep[i]=='ROSbridge') and (activatedep.get('ROSbridge', -1) == 0): #ROSbridge
+							#ros2 activate
+							commsdep = ". /opt/ros/melodic/setup.bash && . /opt/ros/dashing/setup.bash && ros2 run ros1_bridge dynamic_bridge --bridge-all-topics"
+							subprocess.Popen(commsdep, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+							activatedep['ROSbridge']+=1
+					# command
+					if len(comms)!=0:
+						comms = comms+" && "
+					comms = comms+linesplited[3]
+					subprocess.Popen(comms, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+				else: # switch on -> off
+					dep = linesplited[5].split('&')
+					for i in range(len(dep)):
+						if dep[i] == 'roscore':
+							activatedep['roscore']-=1
+							if activatedep['roscore'] == 0:
+								commsdep = ". /opt/ros/melodic/setup.bash && killall -9 roscore && killall -9 rosmaster"
+								print(commsdep)
+								subprocess.Popen(commsdep, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+						if dep[i] == 'ROSbridge':
+							activatedep['ROSbridge']-=1
+							if activate['ROSbridge'] == 0:
+								commsdep = ". /opt/ros/melodic/setup.bash && rosnode kill /ros_bridge"
+								print(commsdep)
+								subprocess.Popen(commsdep, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+		f.close()
 
 
 class adms_subscriber(QThread):
 	sig_wheel = pyqtSignal(list)   # Wheel & Average Speed
 	sig_apsbps = pyqtSignal(list)   # APS/BPS ACT/NONACT FEEDBACK
 	sig_gear = pyqtSignal(int)   # GearPosition
-	#sig_steering = pyqtSignal(int)   # Steering Angle
+	sig_steer = pyqtSignal(int)   # Steering Angle
 	sig_estop = pyqtSignal(bool)   # ESTOP Switch
 	sig_auto = pyqtSignal(list)   # Auto Stnadby Switch
 	sig_override = pyqtSignal(int)   # Override Feedback
@@ -514,39 +698,32 @@ class adms_subscriber(QThread):
 	sig_belt = pyqtSignal(bool)   # Driver Belt
 	sig_trunk = pyqtSignal(bool)   # Trunk
 	sig_door = pyqtSignal(list)   # Door
-
 	def __init__(self):
 		super().__init__()
 		try:
 			rclpy.init(args=None)
 		except:
 			raise Exception("Init 실패, 다시시도 해주세요")
-
 		self.node = rclpy.create_node("ADMS")
 		self.node.get_logger().info("ADMS : ADMS Initialize")
-
-
 	def __del__(self):
 		print("Command Job Done")
+		#commsdel = ". /opt/ros/dashing/setup.bash"
+		#subprocess.Popen(commsdel, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
 		rclpy.shutdown()
 		self.wait()
 		self.quit()
-		self.wait()
-		self.quit()
-
-
 	def run(self):
 			sub2 = self.node.create_subscription(
 				Float32MultiArray,
 				'/Ioniq_info',
 				self.joint_callback)
-
 			rclpy.spin(self.node)
-
 	def joint_callback(self, msg : Float32MultiArray):
 		self.sig_wheel.emit(list(msg.data[19:]))
 		self.sig_apsbps.emit(list(msg.data))
 		self.sig_gear.emit(int(list(msg.data)[2]))
+		self.sig_steer.emit(int(list(msg.data)[3]))
 		self.sig_estop.emit(bool(list(msg.data)[4]))
 		self.sig_auto.emit(list(msg.data)[5:9])
 		self.sig_override.emit(int(list(msg.data)[9]))
@@ -554,7 +731,6 @@ class adms_subscriber(QThread):
 		self.sig_belt.emit(bool(list(msg.data)[13]))
 		self.sig_trunk.emit(bool(list(msg.data)[14]))
 		self.sig_door.emit(list(msg.data)[15:19])
-		#print(list(msg.data))
 
 
 if __name__ == "__main__":
