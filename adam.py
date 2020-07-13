@@ -23,6 +23,7 @@ import os
 from authManager import authentication_server
 import queue
 from queue import PriorityQueue
+import signal
 
 import adam_addswitch
 from adam_addswitch import *
@@ -48,8 +49,6 @@ class loginWindow(QMainWindow, login_form):
 		self.setupUi(self)
 		self.center()
 		self.setWindowFlags(Qt.WindowStaysOnTopHint)
-
-
 
 		self.commandLinkButton.clicked.connect(self.loginBtn)
 		self.lineEdit_2.returnPressed.connect(self.credentialCheck)
@@ -104,7 +103,6 @@ class loginWindow(QMainWindow, login_form):
 		self.lineEdit_2.setText(self.lineEdit_2.text() + '0')
 	def btn_b(self):
 		self.lineEdit_2.setText(self.lineEdit_2.text()[:-1])
-
 	def autoCheck(self):
 		if len(self.lineEdit_2.text())>2:
 			self.credentialCheck()
@@ -239,14 +237,17 @@ class mainWidnow(QMainWindow, main_form):
 		self.amw = addswitchWindow()
 		self.switchNum = 0 # shows how many switch 'now'
 		self.switchnumarr = {'Vision' : 0, 'LIDAR' : 0, 'GPS' : 0, 'Driving' : 0, 'HW' : 0, 'Page' : 0}
-		f = open("ADMS_switch_list.txt", 'r')
-		while True:
-			line = f.readline()
-			if not line:
-				break
-			else:
-				category, switchname, programname, command, node, _, _ = line.split('|')
-				self.btnVisualization([category, switchname, programname, command, node])
+		try:
+			f = open("ADMS_switch_list.txt", 'r')
+			while True:
+				line = f.readline()
+				if not line:
+					break
+				else:
+					category, switchname, command, node, _, _ = line.split('|')
+					self.btnVisualization([category, switchname, command, node])
+		except:
+			f = open("ADMS_switch_list.txt", 'w')
 		self.onimg = QPixmap('on.png')
 		self.onimg = self.onimg.scaled(51, 51, Qt.KeepAspectRatio)
 		self.offimg = QPixmap('off.png')
@@ -261,12 +262,24 @@ class mainWidnow(QMainWindow, main_form):
 
 	def changeWinMode(self):
 		if not self.lightmode:
-			self.setStyleSheet("background-color : rgb(236, 232, 228);")
+			self.setStyleSheet("background-color : rgb(236, 232, 228)")
 			self.modeChange.setText("Dark Mode")
 			widgetlist = self.centralwidget.findChildren(QWidget)
 			for qwdg in widgetlist:
 				qwdg.setStyleSheet("color : black;")
-			print(widgetlist)
+				if qwdg.objectName() in ['closeddoors', 'turnleft', 'turnright', 'doorfl', 'doorfr', 'doorrl', 'doorrr']:
+					qwdg.setStyleSheet("background-color: rgba(255, 255, 255, 0); border: rgba(255, 255, 0);")
+					if qwdg.objectName() == 'closeddoors':
+						qwdg.setPixmap(QPixmap("./closeddoors.png"))
+					elif qwdg.objectName() == 'doorfl' or qwdg.objectName() == 'doorrl':
+						qwdg.setPixmap(QPixmap("./ldoor.png"))
+					elif qwdg.objectName() == 'doorfr' or qwdg.objectName() == 'doorrr':
+						qwdg.setPixmap(QPixmap("./rdoor.png"))
+				elif qwdg.objectName() == 'beltok':
+					qwdg.setPixmap(QPixmap("./beltOK.png"))
+				elif qwdg.objectName() == 'trunkclosed':
+					qwdg.setPixmap(QPixmap("./trunk.png"))
+			#print(widgetlist)
 			self.lightmode = True
 		else:
 			self.setStyleSheet("background-color : rgb(46, 52, 54);")
@@ -274,6 +287,18 @@ class mainWidnow(QMainWindow, main_form):
 			widgetlist = self.centralwidget.findChildren(QWidget)
 			for qwdg in widgetlist:
 				qwdg.setStyleSheet("color : white;")
+				if qwdg.objectName() in ['closeddoors', 'turnleft', 'turnright', 'doorfl', 'doorfr', 'doorrl', 'doorrr']:
+					qwdg.setStyleSheet("background-color: rgba(255, 255, 255, 0); border: rgba(255, 255, 0);")
+					if qwdg.objectName() == 'closeddoors':
+						qwdg.setPixmap(QPixmap("./closeddoorswhite.png"))
+					elif qwdg.objectName() == 'doorfl' or qwdg.objectName() == 'doorrl':
+						qwdg.setPixmap(QPixmap("./ldoorwhite.png"))
+					elif qwdg.objectName() == 'doorfr' or qwdg.objectName() == 'doorrr':
+						qwdg.setPixmap(QPixmap("./rdoorwhite.png"))
+				elif qwdg.objectName() == 'beltok':
+					qwdg.setPixmap(QPixmap("./beltOKwhite.png"))
+				elif qwdg.objectName() == 'trunkclosed':
+					qwdg.setPixmap(QPixmap("./trunkwhite.png"))
 			self.lightmode = False
 
 	def deleteSwitch(self):
@@ -336,7 +361,7 @@ class mainWidnow(QMainWindow, main_form):
 		self.switchNum -= deletenum
 
 	def btnVisualization(self, btninfo):
-		category, switchname, programname, command, nodes = btninfo
+		category, switchname, command, nodes = btninfo
 		self.switchTabBox.setCurrentWidget(self.switchTabBox.findChild(QWidget, category))
 		switchidx = self.switchnumarr.get(category)
 		row = switchidx//5
@@ -345,7 +370,7 @@ class mainWidnow(QMainWindow, main_form):
 		frame = eval('self.frame'+str(category)+str(self.switchnumarr[category]))
 		layoutcontainer = QHBoxLayout()
 		frame.setLayout(layoutcontainer)
-		framelbx = switchLayout(category, switchidx, switchname, nodes, self.switchNum, programname, frame)
+		framelbx = switchLayout(category, switchidx, switchname, nodes, self.switchNum, frame)
 		frame.layout().addLayout(framelbx)
 		self.switchNum += 1
 		self.switchnumarr[category] += 1
@@ -363,9 +388,16 @@ class mainWidnow(QMainWindow, main_form):
 
 		if reply == QMessageBox.Yes:
 			if self.recordFlag:
-				killComms = ". /opt/ros/melodic/setup.bash && rosnode kill /adam_record && rosnode kill /ros_bridge && killall -9 roscore && killall -9 rosmaster"
+				killComms = ". /opt/ros/melodic/setup.bash && rosnode kill /adam_record"
 				print(killComms)
 				subprocess.Popen(killComms, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+			for i in range(len(adam_addswitch.runningprc)):
+				print('try to shut down ', adam_addswitch.runningprc[i][0])
+				adam_addswitch.runningprc[i][0].send_signal(signal.SIGINT)
+			killROS = "killall -9 roscore && killall -9 rosmaster"
+			subprocess.Popen(killROS, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+			killbridge = "killall -9 ros2"
+			subprocess.Popen(killbridge, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
 			event.accept()
 			print('Window closed')
 		else:
@@ -440,18 +472,14 @@ class mainWidnow(QMainWindow, main_form):
 
 	def trunkOpen(self, msg):
 		if msg:
-			self.trunkclosed.close()
 			self.trunkopen.show()
 		else:
-			self.trunkclosed.show()
 			self.trunkopen.close()
 
 	def driverBelt(self, msg):
 		if msg:
-			self.beltok.show()
 			self.beltno.close()
 		else:
-			self.beltok.close()
 			self.beltno.show()
 
 	def turnSig(self, msg):
@@ -638,7 +666,7 @@ class adms_subscriber(QThread):
 		print("Command Job Done")
 		#commsdel = ". /opt/ros/dashing/setup.bash"
 		#subprocess.Popen(commsdel, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
-		rclpy.shutdown()
+		#rclpy.shutdown()
 		self.wait()
 		self.quit()
 	def run(self):

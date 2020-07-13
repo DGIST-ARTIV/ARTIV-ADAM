@@ -7,6 +7,7 @@ from PyQt5.QtGui import *
 from PyQt5 import uic
 from subprocess import Popen, PIPE
 import signal
+import heapq
 #import roslaunch
 
 import pics_rc
@@ -20,6 +21,16 @@ import os
 
 addswitch_form = uic.loadUiType("adam-addswitch.ui")[0]
 activatedep = {'roscore' : 0, 'ROSbridge' : 0}
+runningprc = []
+
+def kth_smallest(nums, k):
+  heap = []
+  for num in nums:
+    heapq.heappush(heap, num)
+  kth_min = None
+  for _ in range(k):
+    kth_min = heapq.heappop(heap)
+  return kth_min[1]
 
 class addswitchWindow(QDialog, addswitch_form):
 	sig_btn = pyqtSignal(list)
@@ -38,6 +49,7 @@ class addswitchWindow(QDialog, addswitch_form):
 		self.shprogram.setDisabled(True)
 		self.disabledsh = True
 		self.nodes.setDisabled(True)
+		self.commidx = -1
 
 		self.buttonBox.accepted.connect(self.addtoMain)
 		self.checkBox_3.stateChanged.connect(self.activateshprogram)
@@ -53,15 +65,14 @@ class addswitchWindow(QDialog, addswitch_form):
 	def addtoMain(self):
 		category = self.category.currentText()
 		switchname = self.switchname.text()
-		programname = self.programname.text()
 		command = self.command.text()
 		nodes = self.nodes.text()
-		if (category == "") or (switchname == "") or (programname == "") or (command == ""):
+		if (category == "") or (switchname == "") or (command == ""):
 			reply = QMessageBox.warning(self, 'Warning', 'Fill the Blank(s)!',
 				QMessageBox.Ok, QMessageBox.Ok)
 		else:
 			f = open("ADMS_switch_list.txt", 'a')
-			f.write(str(category)+'|'+str(switchname)+'|'+str(programname)+'|'+str(command)+'|'+str(nodes)+'|')
+			f.write(str(category)+'|'+str(switchname)+'|'+str(command)+'|'+str(nodes)+'|')
 			if self.checkBox.checkState() == 2: # 2 == checked!
 				f.write("ROS1&")
 			if self.checkBox_2.checkState() == 2: # 2 == checked!
@@ -75,7 +86,7 @@ class addswitchWindow(QDialog, addswitch_form):
 				f.write("ROSbridge")
 			f.write("\n")
 			f.close()
-			self.sig_btn.emit([category, switchname, programname, command, nodes])
+			self.sig_btn.emit([category, switchname, command, nodes])
 			print("add btn accepted!")
 
 class QLabel_clickable(QLabel):
@@ -86,11 +97,10 @@ class QLabel_clickable(QLabel):
 		self.clicked.emit()
 
 class switchLayout(QHBoxLayout):
-	def __init__(self, category, switchidx, switchname, nodes, switchNum, programname, frame):
+	def __init__(self, category, switchidx, switchname, nodes, switchNum, frame):
 		super().__init__()
 		self.category = category
 		self.linenum = switchNum
-		self.programname = programname
 		self.com = 0
 		self.switchidx = switchidx
 		self.switchon = False
@@ -142,8 +152,8 @@ class switchLayout(QHBoxLayout):
 				linesplited = line.split('|')
 				#env(ROS1&ROS2&sh)
 				comms = ""
-				env = linesplited[5].split('&')
-				dep = linesplited[6].split('&')
+				env = linesplited[4].split('&')
+				dep = linesplited[5].split('&')
 				print('env :', env)
 				if not self.switchon:
 					for i in range(len(env)):
@@ -158,7 +168,7 @@ class switchLayout(QHBoxLayout):
 						if env[i] == 'sh': #"(sh)
 							if len(comms) != 0:
 								comms = comms+" && "
-							comms = comms+"sh "+self.programname
+							comms = comms+"sh "+self.shprogram
 					#dependency(roscore&ROSbridge)
 					for i in range(len(dep)):
 						if (dep[i] == 'roscore') and (activatedep.get('roscore', -1) == 0):
@@ -174,15 +184,19 @@ class switchLayout(QHBoxLayout):
 					# command
 					if len(comms)!=0:
 						comms = comms+" && "
-					comms = comms+linesplited[3]
+					comms = comms+linesplited[2]
 					self.com = subprocess.Popen(comms, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+					self.commidx = len(runningprc)+1
+					runningprc.append((self.com, self.commidx))
+
 				else: # switch on -> off
 					self.com.send_signal(signal.SIGINT)
 					for i in range(len(dep)):
+						print(kth_smallest(runningprc, self.commidx, 'is killed!'))
 						if dep[i] == 'roscore':
 							activatedep['roscore']-=1
 							if activatedep['roscore'] == 0:
-								commsdep = ". /opt/ros/melodic/setup.bash && killall -9 roscore && killall -9 rosmaster"
+								commsdep = "killall -9 roscore && killall -9 rosmaster"
 								print(commsdep)
 								subprocess.Popen(commsdep, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
 						if dep[i] == 'ROSbridge':
