@@ -20,25 +20,16 @@ $ . /opt/ros/dashing/setup.bash  # ros2
 $ python3 adam.py
 ```
 다음과 같이 login 창이 팝업된다. '097'과 같이 DB에 등록된 키를 입력하면 로그인이 가능하다.
-![](./readme_image/login.gif)
+![login](https://github.com/DGIST-ARTIV/ARTIV-ADAM/assets/48004826/79fd081c-b79c-405e-af09-a5def2815568)
 
 ## UI
-![](./readme_image/adms_play.png)
+![adms_play](https://github.com/DGIST-ARTIV/ARTIV-ADAM/assets/48004826/9661c71f-14d8-46dd-9e60-7925db403846)  
 업데이트는 약 66fps 로 이뤄진다.
 
 ### 수집 정보
 * 원하는 노드 토픽을 선택적으로 rosbag 파일로 기록할 수 있다.
 * Reload를 누르면 현재 토픽들이 나옴? test
 * rosbag 저장위치를 설정하지 않으면 `/Desktop/ADMSrosbag`에 저장된다. (admsv6) 파일 이름은 '로그인 id + 기록 시작 시간'이다.
-
-==========
-test
-rosbag 재생 관련 : https://winterbloooom.github.io/robotics/ros/2022/05/22/rosbag.html
-https://needs-searcher.tistory.com/158
-1. source /opt/ros/melodic/setup.bash
-2. rosbag play 201811093_2062405155.bag
-  * ~/startup/ADMSv4/2018~
-==========
 
 ### 차량 정보
 기어, Steer, 브레이크 값 등 차량 주행 상태를 실시간으로 시각화합니다.
@@ -50,8 +41,7 @@ CAN통신과 UI 업데이트 사이 delay를 확인할 수 있습니다. Delay�
 ROS 로그를 확인할 수 있습니다. FATAL 레벨의 로그 발생 시 시각적 및 청각적으로 알려 빠른 대응이 가능하도록 했다.
 
 ### 주행 시나리오 숏컷 커스터마이징
-ADMS는 주행 시나리오를 간단하게 테스트 할 수 있는 숏컷을 자유로이 추가/변경/제거할 수 있는 기능을 제공한다.
-~로 작성된 주행 시나리오를 subprocess에서 쉘 명령어로 실행시키는 방식으로 테스트 가능함.
+ADMS는 주행 시나리오를 간단하게 테스트 할 수 있는 숏컷을 자유로이 추가/변경/제거할 수 있는 기능을 제공한다.주행 시나리오를 subprocess에서 셀 명령어로 실행시켜 테스트 할 수 있다.
 1. 추가하는 법
 좌측하단의 Add 버튼을 누르면 추가하고자 하는 주행 시나리오를 작성할 수 있는 창이 팝업됩니다. 각 카테고리 별로 최대 15개까지 추가할 수 있다.
 * Category : 추가할 주행 시나리오가 어느 센서 및 파트와 관련되어 있는지 설정
