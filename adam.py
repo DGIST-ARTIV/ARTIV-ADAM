@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import sys
 from PyQt5.QtWidgets import * #PyQt import
 from PyQt5.QtGui import *
@@ -24,6 +26,9 @@ from authManager import authentication_server
 import queue
 from queue import PriorityQueue
 import signal
+from rcl_interfaces.msg import Log
+
+import cv2
 
 import adam_addswitch
 from adam_addswitch import *
@@ -33,6 +38,8 @@ login_form = uic.loadUiType("adam-login2.ui")[0]
 main_form = uic.loadUiType("adam-main-dark.ui")[0]
 
 categorynum = 5
+
+homedir = os.environ['HOME']
 
 class loginWindow(QMainWindow, login_form):
 
@@ -44,7 +51,6 @@ class loginWindow(QMainWindow, login_form):
 		self.move(frameGm.topLeft())
 
 	def __init__(self):
-
 		super().__init__()
 		self.setupUi(self)
 		self.center()
@@ -130,6 +136,21 @@ class loginWindow(QMainWindow, login_form):
 			returnVal = self.userDB.idValidation(self.lineEdit_2.text())
 			print(returnVal)
 			if returnVal:
+				#self.loginrecord(self.userDB.retrieve(returnVal, 'all'))
+				userInfo = self.userDB.retrieve(returnVal, 'all')
+
+				name = userInfo[0]
+				sid = userInfo[3]
+				recordtxt = homedir+'/loginrecord.txt'
+				try:
+					f = open(recordtxt, 'a')
+				except:
+					f = open(recordtxt, 'w')
+				now = time.localtime()
+				now = str(now.tm_year)+'/'+str(now.tm_mon)+'/'+str(now.tm_mday)+'_'+str(now.tm_hour)+':'+str(now.tm_min)+':'+str(now.tm_sec)
+				f.write('%(name)5s %(sid)15s %(time)20s\n' % {'name':name, 'sid':sid, 'time':now})
+				f.close()
+
 				self.mW = mainWidnow(self.userDB.retrieve(returnVal, 'all'))
 				self.mW.show()
 				self.hide()
@@ -142,6 +163,20 @@ class loginWindow(QMainWindow, login_form):
 			raise Exception(ex)
 			self.label_7.setText(f"Invalid Input\n{ex}")
 			return 0
+
+	def loginrecord(self, userInfo):
+		name = userInfo[0]
+		sid = userInfo[3]
+		recordtxt = homedir+'/loginrecord.txt'
+		try:
+			f = open(recordtxt, 'r')
+		except:
+			f = open(recordtxt, 'w')
+		now = time.localtime()
+		now = str(now.tm_year)+'/'+str(now.tm_mon)+'/'+str(now.tm_mday)+'_'+str(now.tm_hour)+':'+str(now.tm_min)+':'+str(now.tm_sec)
+		f.write('%(name)10s %(sid)15s %(time)20s' % {'name':name, 'sid':sid, 'time':now})
+		f.close()
+
 
 
 class rosbagRecord():
@@ -174,6 +209,7 @@ class rosbagRecord():
 		self.stop_recording("/adam_record")
 
 
+
 class mainWidnow(QMainWindow, main_form):
 	def center(self): #for load ui at center of screen
 		frameGm = self.frameGeometry()
@@ -186,6 +222,21 @@ class mainWidnow(QMainWindow, main_form):
 		super().__init__()
 		self.setupUi(self)
 		self.center()
+		self.timeVar = QTimer(self)
+		self.timeVar.setInterval(15)
+		self.timeVar.start()
+		self.timecounter = 0
+
+		self.handle = cv2.imread('steer2.png', cv2.IMREAD_COLOR)
+		#self.handle = cv2.resize(self.handle, (101, 101), interpolation = cv2.INTER_LINEAR)
+		self.imgh, self.imgw, self.imgch = self.handle.shape
+
+		self.logtable.setEditTriggers(QAbstractItemView.NoEditTriggers)
+		self.logtable.setSelectionMode(QAbstractItemView.SingleSelection)
+		self.logtable.setColumnCount(4)
+		self.logtable.setRowCount(0)
+		self.logtable.setHorizontalHeaderLabels(['내용', '심각도', '발생', '시간'])
+
 		self.saveDialog.clicked.connect(self.saveFileDialog)
 		self.logout.clicked.connect(self.logoutBtn)
 
@@ -194,20 +245,9 @@ class mainWidnow(QMainWindow, main_form):
 
 		self.label.setText(self.label.text() + self.name)
 		self.label_5.setText(self.label_5.text() + self.sid)
-
+		self.switchTabBox.setCurrentIndex(self.switchTabBox.indexOf(self.switchTabBox.findChild(QWidget, 'tab')))
 		self.adms_subscriber_class = adms_subscriber()
 		self.adms_subscriber_class.start()
-		self.adms_subscriber_class.sig_wheel.connect(self.wheel_speed)
-		self.adms_subscriber_class.sig_apsbps.connect(self.apsbpsFeed)
-		self.adms_subscriber_class.sig_gear.connect(self.gearPosition)
-		self.adms_subscriber_class.sig_steer.connect(self.steeringHandle)
-		self.adms_subscriber_class.sig_estop.connect(self.estopVisual)
-		self.adms_subscriber_class.sig_auto.connect(self.autostandby)
-		self.adms_subscriber_class.sig_override.connect(self.overRide)
-		self.adms_subscriber_class.sig_turn.connect(self.turnSig)
-		self.adms_subscriber_class.sig_belt.connect(self.driverBelt)
-		self.adms_subscriber_class.sig_trunk.connect(self.trunkOpen)
-		self.adms_subscriber_class.sig_door.connect(self.doorOpen)
 
 		self.turnleft.close()
 		self.turnright.close()
@@ -218,6 +258,7 @@ class mainWidnow(QMainWindow, main_form):
 		self.doorfr.close()
 		self.doorrl.close()
 		self.doorrr.close()
+		self.delayalertTxt.close()
 
 		self.topicnode = rclpy.create_node('list_all_topics')
 
@@ -227,8 +268,6 @@ class mainWidnow(QMainWindow, main_form):
 		self.recordFlag = False
 		self.cantime = time.time()
 		self.visualtime = time.time()
-
-		self.setupBtn.clicked.connect(self.setupCar)
 
 		self.lightmode = False
 		self.modeChange.clicked.connect(self.changeWinMode)
@@ -244,8 +283,8 @@ class mainWidnow(QMainWindow, main_form):
 				if not line:
 					break
 				else:
-					category, switchname, command, node, _, _ = line.split('|')
-					self.btnVisualization([category, switchname, command, node])
+					category, switchname, command, _, _, _ = line.split('|')
+					self.btnVisualization([category, switchname, command])
 		except:
 			f = open("ADMS_switch_list.txt", 'w')
 		self.onimg = QPixmap('on.png')
@@ -257,8 +296,119 @@ class mainWidnow(QMainWindow, main_form):
 		self.addSwitchBtn.clicked.connect(self.popAddSwitch)
 		self.delSwitchBtn.clicked.connect(self.deleteSwitch)
 		self.amw.sig_btn.connect(self.btnVisualization)
-
 		#######Switch Part#######
+
+		self.ioniqmsg = []
+		self.logmsg = []
+		self.adms_subscriber_class.sig_ioniq.connect(self.ioniqdatatransfer)
+		self.adms_subscriber_class.sig_log.connect(self.logtransfer)
+		self.timeVar.timeout.connect(self.displaySig)
+		self.timeVar.timeout.connect(self.displayLog)
+		#self.timeVar2.timeout.connect(self.printcounter)
+
+	def addLogTable(self, msg, row_count):
+		if row_count>9999:
+			self.logtable.removeRow(0)
+		else:
+			row_count += 1
+		self.logtable.setRowCount(row_count)
+
+		serverity = self.putIcon(msg[0])[1]
+		msg[2] = serverity
+		message = QTableWidgetItem(msg[1])
+		message.setIcon(self.putIcon(msg[0])[0])
+		serverity = QTableWidgetItem(msg[2])
+		serverity.setBackground(self.putIcon(msg[0])[2])
+		#serverity.setStyleSheet("color:black;")
+		self.logtable.setItem(row_count-1, 0, message)
+		self.logtable.setItem(row_count-1, 1, serverity)
+		self.logtable.setItem(row_count-1, 2, QTableWidgetItem(msg[3]))
+		self.logtable.setItem(row_count-1, 3, QTableWidgetItem(msg[4]))
+		myitem = self.logtable.item(row_count-1, 1)
+		myitem.setForeground(QBrush(Qt.black))
+
+		header = self.logtable.horizontalHeader()
+		header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+		header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+		header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+		header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeToContents)
+		self.logtable.setColumnWidth(0, 635)
+		self.logtable.scrollToBottom()
+		#print('addedmsg :', msg)
+		#except:
+		#	pass
+		#info debug warning error
+
+	def displayLog(self):
+		msg = []
+		msg = self.logmsg
+		#print(self.logmsg)
+		# Check whether log is repeated
+		row_count =self.logtable.rowCount()
+		reason = ''
+		if row_count != 0:
+			reason = self.logtable.item(row_count-1, 2).text()
+		#print('reason :', reason, 'msg :', msg)
+		if len(msg) != 0:
+			if (((reason not in msg[3]) and (msg[3] not in reason)) or reason == ''):
+				self.addLogTable(msg, row_count)
+
+	def putIcon(self, severity):
+		iconList = ['SP_MessageBoxCritical', 'SP_MessageBoxInformation', 'SP_MessageBoxQuestion', 'SP_MessageBoxWarning']
+		if severity == 1 or severity == 10:
+			#Debug
+			return self.style().standardIcon(getattr(QStyle, iconList[2])), "DEBUG", Qt.white
+			pass
+		elif severity == 2 or severity == 20:
+			#INFO
+			return self.style().standardIcon(getattr(QStyle, iconList[1])), "INFO", Qt.white
+			pass
+		elif severity == 4 or severity == 30:
+			#WARN
+			return self.style().standardIcon(getattr(QStyle, iconList[3])), "WARNING", Qt.yellow
+			pass
+		elif severity == 8 or severity == 40:
+			#ERROR
+			return self.style().standardIcon(getattr(QStyle, iconList[0])), "ERROR", Qt.darkRed
+			pass
+		elif severity == 16 or severity == 50:
+			#FATAL
+			return  self.style().standardIcon(getattr(QStyle, iconList[0])), "FATAL", Qt.magenta
+			pass
+		elif severity == 0:
+			#UNSET
+			return ""
+			pass
+
+
+	def printcounter(self):
+		print(self.timecounter, 'in 1 sec')
+		self.timecounter = 0
+
+	def ioniqdatatransfer(self, msg):
+		self.ioniqmsg = msg
+		#print(self.ioniqmsg)
+
+	def logtransfer(self, msg):
+		self.logmsg = msg
+		#print('log :', self.logmsg)
+
+	def displaySig(self):
+		try:
+			self.wheel_speed(self.ioniqmsg[19:])
+			self.apsbpsFeed(self.ioniqmsg)
+			self.gearPosition(self.ioniqmsg[2])
+			self.steeringHandle(self.ioniqmsg[3])
+			self.estopVisual(self.ioniqmsg[4])
+			self.autostandby(self.ioniqmsg[5:9])
+			self.overRide(self.ioniqmsg[9])
+			self.turnSig(self.ioniqmsg[10])
+			self.driverBelt(self.ioniqmsg[13])
+			self.trunkOpen(self.ioniqmsg[14])
+			self.doorOpen(self.ioniqmsg[15:19])
+		except:
+			pass
+		#self.timecounter+=1
 
 	def changeWinMode(self):
 		if not self.lightmode:
@@ -266,8 +416,9 @@ class mainWidnow(QMainWindow, main_form):
 			self.modeChange.setText("Dark Mode")
 			widgetlist = self.centralwidget.findChildren(QWidget)
 			for qwdg in widgetlist:
-				qwdg.setStyleSheet("color : black;")
-				if qwdg.objectName() in ['closeddoors', 'turnleft', 'turnright', 'doorfl', 'doorfr', 'doorrl', 'doorrr']:
+				qwdg.setStyleSheet("color : black")
+				#print(qwdg.objectName())
+				if qwdg.objectName() in ['closeddoors', 'turnleft', 'turnright', 'doorfl', 'doorfr', 'doorrl', 'doorrr', 'delayalertTxt']:
 					qwdg.setStyleSheet("background-color: rgba(255, 255, 255, 0); border: rgba(255, 255, 0);")
 					if qwdg.objectName() == 'closeddoors':
 						qwdg.setPixmap(QPixmap("./closeddoors.png"))
@@ -275,6 +426,8 @@ class mainWidnow(QMainWindow, main_form):
 						qwdg.setPixmap(QPixmap("./ldoor.png"))
 					elif qwdg.objectName() == 'doorfr' or qwdg.objectName() == 'doorrr':
 						qwdg.setPixmap(QPixmap("./rdoor.png"))
+					elif qwdg.objectName() == 'delayalertTxt':
+						qwdg.setStyleSheet("color : red;")
 				elif qwdg.objectName() == 'beltok':
 					qwdg.setPixmap(QPixmap("./beltOK.png"))
 				elif qwdg.objectName() == 'trunkclosed':
@@ -302,66 +455,75 @@ class mainWidnow(QMainWindow, main_form):
 			self.lightmode = False
 
 	def deleteSwitch(self):
-		idx = self.switchTabBox.currentIndex()
-		category = self.switchTabBox.tabText(idx)
-		q = PriorityQueue()
-		deletenum = 0
-		for i in range(self.switchnumarr.get(category)):
-			if eval('self.frame'+str(category)+str(i)).styleSheet() == 'border : 2px solid blue':
-				frame = eval('self.frame'+str(category)+str(i))
-				frame.setStyleSheet("border : transparent")
-				#print('layout item :', frame.layout().itemAt(0).layout())
-				frame.layout().itemAt(0).layout().labelclicked = False
-				print(i, 'th child :', eval('self.frame'+str(category)+str(i)).findChildren(QLabel))
-				childrenwidget = eval('self.frame'+str(category)+str(i)).findChildren(QLabel)
-				row = i//5
-				col = i-5*row
-				q.put((row, col))
-				#eval('self.frame'+str(category)+str(i)).styleSheet()
-				delswitchname = childrenwidget[1].text()
-				for j in range(len(childrenwidget)):
-					print(i, 'th', j, 'child objectname :', childrenwidget[j].objectName())
-					dellayout = childrenwidget[j].parent().layout().itemAt(0).layout()
-					print(dellayout, dellayout.layout())
-					delwidget = dellayout.takeAt(0)
-					print('delwidget :', delwidget.widget())
-					delwidget.widget().setParent(None)
-				f = open("ADMS_switch_list.txt", "r")
-				lines = f.readlines()
-				f.close()
-				new_f = open("ADMS_switch_list.txt", "w")
-				print("category :", category, "delswitchname :", delswitchname)
-				for line in lines:
-					check = line.strip("\n").split('|')
-					print('check :', check)
-					if check[0] != category or check[1] != delswitchname:
-						new_f.write(line)
-				new_f.close()
-				deletenum+=1
-		print('switchnumarr :', self.switchnumarr.get(category))
-
-		for i in range(self.switchnumarr.get(category)):
-			if eval('self.frame'+str(category)+str(i)).findChild(QLabel) != None:
-				print(eval('self.frame'+str(category)+str(i)).findChildren(QLabel), 'are exist!')
-				r, c = q.get()
-				print(r, c)
-				print('lala')
-				cr = i//5
-				cc = i-5*cr
-				cframe = eval('self.frame'+str(category)+str(i))
-				clayout = eval('self.frame'+str(category)+str(i)).layout().itemAt(0).layout()
-				#print(clayout.parentWidget().parent().layout())
-				fframe = eval('self.frame'+str(category)+str(5*r+c))
-				cframe.layout().takeAt(0)
-				fframe.layout().takeAt(0)
-				fframe.layout().addLayout(clayout)
-				print('r, c :', r, c, 'cr, cc :', cr, cc)
-				q.put((cr, cc))
-		self.switchnumarr[category] -= deletenum
-		self.switchNum -= deletenum
+		reply = QMessageBox.question(self, 'Delete switch', 'Are you sure to delete selected switch(es)?',
+			QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+		if reply == QMessageBox.Yes:
+			idx = self.switchTabBox.currentIndex()
+			category = self.switchTabBox.tabText(idx)
+			q = PriorityQueue()
+			deletenum = 0
+			for i in range(self.switchnumarr.get(category)):
+				if eval('self.frame'+str(category)+str(i)).styleSheet() == 'border : 2px solid blue':
+					frame = eval('self.frame'+str(category)+str(i))
+					frame.setStyleSheet("border : transparent")
+					#print('layout item :', frame.layout().itemAt(0).layout())
+					if frame.layout().itemAt(0).layout().switchon:
+						frame.layout().itemAt(0).layout().activateutil(True)
+					print(i, 'th child :', eval('self.frame'+str(category)+str(i)).findChildren(QLabel))
+					childrenwidget = eval('self.frame'+str(category)+str(i)).findChildren(QLabel)
+					row = i//5
+					col = i-5*row
+					q.put((row, col))
+					#eval('self.frame'+str(category)+str(i)).styleSheet()
+					delswitchname = childrenwidget[1].text()
+					for j in range(len(childrenwidget)):
+						print(i, 'th', j, 'child objectname :', childrenwidget[j].objectName())
+						dellayout = childrenwidget[j].parent().layout().itemAt(0).layout()
+						print(dellayout, dellayout.layout())
+						delwidget = dellayout.takeAt(0)
+						print('delwidget :', delwidget.widget())
+						delwidget.widget().setParent(None)
+					f = open("ADMS_switch_list.txt", "r")
+					lines = f.readlines()
+					f.close()
+					new_f = open("ADMS_switch_list.txt", "w")
+					print("category :", category, "delswitchname :", delswitchname)
+					for line in lines:
+						check = line.strip("\n").split('|')
+						print('check :', check)
+						if check[0] != category or check[1] != delswitchname:
+							new_f.write(line)
+					new_f.close()
+					deletenum+=1
+			print('switchnumarr :', self.switchnumarr.get(category))
+			if not q.empty():
+				for i in range(self.switchnumarr.get(category)):
+					if eval('self.frame'+str(category)+str(i)).findChild(QLabel) != None:
+						print(eval('self.frame'+str(category)+str(i)).findChildren(QLabel), 'are exist!')
+						r, c = q.get()
+						print(r, c)
+						print('lala')
+						cr = i//5
+						cc = i-5*cr
+						if cr >= r and cc > c:
+							#print(clayout.parentWidget().parent().layout())
+							cframe = eval('self.frame'+str(category)+str(i))
+							clayout = eval('self.frame'+str(category)+str(i)).layout().itemAt(0).layout()
+							cframe.layout().takeAt(0)
+							fframe = eval('self.frame'+str(category)+str(5*r+c))
+							fframe.layout().takeAt(0)
+							fframe.layout().addLayout(clayout)
+							print('r, c :', r, c, 'cr, cc :', cr, cc)
+							print('frame become', 5*r+c, 'th')
+							clayout.linenum = 5*r+c
+							q.put((cr, cc))
+						else:
+							q.put((r, c))
+				self.switchnumarr[category] -= deletenum
+				self.switchNum -= deletenum
 
 	def btnVisualization(self, btninfo):
-		category, switchname, command, nodes = btninfo
+		category, switchname, command = btninfo
 		self.switchTabBox.setCurrentWidget(self.switchTabBox.findChild(QWidget, category))
 		switchidx = self.switchnumarr.get(category)
 		row = switchidx//5
@@ -370,39 +532,46 @@ class mainWidnow(QMainWindow, main_form):
 		frame = eval('self.frame'+str(category)+str(self.switchnumarr[category]))
 		layoutcontainer = QHBoxLayout()
 		frame.setLayout(layoutcontainer)
-		framelbx = switchLayout(category, switchidx, switchname, nodes, self.switchNum, frame)
+		framelbx = switchLayout(category, switchidx, switchname, self.switchNum, frame)
 		frame.layout().addLayout(framelbx)
 		self.switchNum += 1
 		self.switchnumarr[category] += 1
 
 	def popAddSwitch(self):
-		print('switch # :', self.switchNum)
+		#print('switch # :', self.switchNum)
+		if not self.lightmode: #darkmode
+			self.amw.setStyleSheet("background-color : rgb(46, 52, 54);")
+			widgetlist = self.amw.findChildren(QWidget)
+			for qwdg in widgetlist:
+				qwdg.setStyleSheet("color : white;")
+		else:
+			self.amw.setStyleSheet("background-color : rgb(236, 232, 228)")
+			widgetlist = self.amw.findChildren(QWidget)
+			for qwdg in widgetlist:
+				qwdg.setStyleSheet("color : black;")
 		self.amw.show()
 
-	def setupCar(self):
-		### SetupCar (v0.1 for LatteAlpha Environ)
-		os.system("sh dbw_start")
 	def closeEvent(self, event):
-		reply = QMessageBox.question(self, 'Window Close', 'Are you sure you want to close the window?',
-				QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+			reply = QMessageBox.question(self, 'Window Close', 'Are you sure you want to close the window?',
+					QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
-		if reply == QMessageBox.Yes:
-			if self.recordFlag:
-				killComms = ". /opt/ros/melodic/setup.bash && rosnode kill /adam_record"
-				print(killComms)
-				subprocess.Popen(killComms, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
-			for i in range(len(adam_addswitch.runningprc)):
-				print('try to shut down ', adam_addswitch.runningprc[i][0])
-				adam_addswitch.runningprc[i][0].send_signal(signal.SIGINT)
-			killROS = "killall -9 roscore && killall -9 rosmaster"
-			subprocess.Popen(killROS, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
-			killbridge = "killall -9 ros2"
-			subprocess.Popen(killbridge, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
-			event.accept()
-			print('Window closed')
-		else:
-			event.ignore()
-
+			if reply == QMessageBox.Yes:
+				if self.recordFlag:
+					killComms = ". /opt/ros/melodic/setup.bash && rosnode kill /adam_record"
+					print(killComms)
+					subprocess.Popen(killComms, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+				for i in range(len(adam_addswitch.runningprc.keys())):
+					print('try to shut down ', adam_addswitch.runningprc[str(i)])
+					adam_addswitch.runningprc[str(i)].send_signal(signal.SIGINT)
+				killROS = "killall -9 roscore && killall -9 rosmaster"
+				subprocess.Popen(killROS, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+				#killbridge = "killall -9 ros2"
+				killbridge = ". /opt/ros/melodic/setup.bash && rosnode kill /ros_bridge"
+				subprocess.Popen(killbridge, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+				event.accept()
+				print('Window closed')
+			else:
+				event.ignore()
 
 	def recordBagbyBtn(self):
 		if self.recordFlag:	# Now recording... should shut down
@@ -416,13 +585,21 @@ class mainWidnow(QMainWindow, main_form):
 			# base directory is ~/rosbagAdam
 			dir_ = self.saveDir.text()
 			if not dir_: #if dir_ is unset, set dir_ current working directory
-				dir_ = os.getcwd()
+				lsdir = homedir+'/Desktop'
+				desktopls = os.listdir(lsdir)
+				direxist = False
+				for i in range(len(desktopls)):
+					if desktopls[i] == 'ADMSrosbag':
+						direxist = True
+						break
+				if not direxist:
+					newdirforreco = homedir+'/Desktop/ADMSrosbag'
+					os.mkdir(newdirforreco)
+				dir_ = homedir+'/Desktop/ADMSrosbag'
 
-			print("dir : ", dir_)
 			now = time.localtime()
-			now = str(now.tm_year)[2:]+str(now.tm_mon)+str(now.tm_mday)+str(now.tm_hour)+str(now.tm_min)+str(now.tm_sec)
-			command = command + ' -O ' + dir_ + "/" + self.sid + "_" +str(now)
-
+			now = str(now.tm_year)[2:]+'-'+str(now.tm_mon)+'-'+str(now.tm_mday)+'_'+str(now.tm_hour)+':'+str(now.tm_min)+':'+str(now.tm_sec)
+			command = command + ' -O ' + dir_ + "/" + self.sid[-2:] + "_" +str(now)
 			numofTopic = 0
 			for i in range(self.topicList.count()):
 				if self.topicList.item(i).checkState() == Qt.Checked:
@@ -433,7 +610,7 @@ class mainWidnow(QMainWindow, main_form):
 				return
 
 
-			print(command)
+			#print(command)
 			#try:
 
 			command = command + str(" __name:=adam_record")
@@ -468,6 +645,10 @@ class mainWidnow(QMainWindow, main_form):
 		self.visualtime = time.time()
 		self.timetable.setItem(1, 0, QTableWidgetItem(str(self.visualtime)))
 		delaytime = self.visualtime - self.cantime
+		if delaytime >= 1:
+			self.delayalertTxt.show()
+		else:
+			self.delayalertTxt.close()
 		self.timetable.setItem(2, 0, QTableWidgetItem(str(delaytime)))
 
 	def trunkOpen(self, msg):
@@ -503,19 +684,34 @@ class mainWidnow(QMainWindow, main_form):
 	def overRide(self, msg):
 		if msg == 0:
 			self.override.setText('Driving Mode: Manual')
-			self.override.setStyleSheet("font-weight: normal; color: black")
+			if self.lightmode:
+				self.override.setStyleSheet("font-weight: normal; color:black;")
+			else:
+				self.override.setStyleSheet("font-weight: normal; color:white;")
 		elif msg == 1:
 			self.override.setText('Driving Mode: Auto')
-			self.override.setStyleSheet("font-weight: normal; color: black")
+			if self.lightmode:
+				self.override.setStyleSheet("font-weight: normal; color:black;")
+			else:
+				self.override.setStyleSheet("font-weight: normal; color:white;")
 		elif msg == 2:
 			self.override.setText('Manual Mode by "Steer"')
-			self.override.setStyleSheet("font-weight: normal; color: black")
+			if self.lightmode:
+				self.override.setStyleSheet("font-weight: normal; color:black;")
+			else:
+				self.override.setStyleSheet("font-weight: normal; color:white;")
 		elif msg == 3:
 			self.override.setText('Manual Mode Mode by "Accel"')
-			self.override.setStyleSheet("font-weight: normal; color: black")
+			if self.lightmode:
+				self.override.setStyleSheet("font-weight: normal; color:black;")
+			else:
+				self.override.setStyleSheet("font-weight: normal; color:white")
 		elif msg == 4:
 			self.override.setText('Manual Mode by "Brake"')
-			self.override.setStyleSheet("font-weight: normal; color: black")
+			if self.lightmode:
+				self.override.setStyleSheet("font-weight: normal; color: black;")
+			else:
+				self.override.setStyleSheet("font-weight: normal; color: white;")
 		elif msg == 6:
 			self.override.setText('Manual Mode by "ESTOP"')
 			self.override.setStyleSheet("font-weight: bold; color: red")
@@ -533,21 +729,36 @@ class mainWidnow(QMainWindow, main_form):
 			if msg[1]:
 				self.apm.setStyleSheet("font-weight: bold; color: green")
 			else:
-				self.apm.setStyleSheet("font-weight: normal; color: black")
+				if self.lightmode:
+					self.apm.setStyleSheet("font-weight: normal; color: black")
+				else:
+					self.apm.setStyleSheet("font-weight: normal; color: white")
 			if msg[2]:
 				self.asm_2.setStyleSheet("font-weight: bold; color: green")
 			else:
-				self.asm_2.setStyleSheet("font-weight: normal; color: black")
+				if self.lightmode:
+					self.asm_2.setStyleSheet("font-weight: normal; color: black")
+				else:
+					self.asm_2.setStyleSheet("font-weight: normal; color: white")
 			if msg[3]:
 				self.agm.setStyleSheet("font-weight: bold; color: green")
 			else:
-				self.agm.setStyleSheet("font-weight: normal; color: black")
+				if self.lightmode:
+					self.agm.setStyleSheet("font-weight: normal; color: black")
+				else:
+					self.agm.setStyleSheet("font-weight: normal; color: white")
 		else:   # Auto Standby Switch OFF
 			self.autoStandbyMode.setText('OFF')
-			self.autoStandbyMode.setStyleSheet("font-weight: bold; color: black")
-			self.apm.setStyleSheet("font-weight: normal; color: black")
-			self.asm_2.setStyleSheet("font-weight: normal; color: black")
-			self.agm.setStyleSheet("font-weight: normal; color: black")
+			if self.lightmode:
+				self.autoStandbyMode.setStyleSheet("font-weight: bold; color: black")
+				self.apm.setStyleSheet("font-weight: normal; color: black")
+				self.asm_2.setStyleSheet("font-weight: normal; color: black")
+				self.agm.setStyleSheet("font-weight: normal; color: black")
+			else:
+				self.autoStandbyMode.setStyleSheet("font-weight: bold; color: white")
+				self.apm.setStyleSheet("font-weight: normal; color: white")
+				self.asm_2.setStyleSheet("font-weight: normal; color: white")
+				self.agm.setStyleSheet("font-weight: normal; color: white")
 
 	def estopVisual(self, msg):
 		if msg:
@@ -556,8 +767,21 @@ class mainWidnow(QMainWindow, main_form):
 			self.estopBox.setStyleSheet("background-color: rgba(255, 255, 255, 10)")
 
 	def steeringHandle(self, msg):
-		self.steerVal.setText('Steering :' + str(msg))
-		self.steerbar.setValue(msg)
+		self.steerdeg.setText('deg : '+str(msg))
+		msg = msg*(-1)
+		if msg >= 360:
+			msg -= 360
+		elif msg <= -360:
+			msg += 360
+		M = cv2.getRotationMatrix2D((self.imgw / 2, self.imgh / 2), msg, 1)
+		#bgr = M[:,:,:3]
+		dst = cv2.warpAffine(self.handle, M, (self.imgw, self.imgh))
+		dst = dst[...,::-1].copy()
+		#alpha = dst[:,:,3]
+		#dst = np.dstack([bgr, alpha])
+		qImg = QImage(dst, self.imgw, self.imgh, 3*self.imgw, QImage.Format_RGB888)
+		pix = QtGui.QPixmap(qImg)
+		self.steerVisual.setPixmap(pix)
 
 	def gearPosition(self, msg):
 		if msg == 0:   # Parking
@@ -579,7 +803,7 @@ class mainWidnow(QMainWindow, main_form):
 
 
 	def checkAll(self):
-		#Fuck dataChanged
+		#dataChanged
 		checkeditem = 0
 		for i in range(self.topicList.count()):
 			if self.topicList.item(i).checkState() == Qt.Checked:
@@ -641,6 +865,26 @@ class mainWidnow(QMainWindow, main_form):
 		self.fr_speed.setText("FR :" + str(round(fr, 2)))
 		self.rr_speed.setText("RR :" + str(round(rr, 2)))
 		self.velocityLcd.display(int(tot_speed))
+'''
+class rosSub(QThread):
+	logmsg = pyqtSignal(list)
+	def __init__(self):
+		super().__init__()
+		rclpy.init()
+		self.node = rclpy.create_node("logmsg")
+
+	def run(self):
+		self.node.create_subscription(Log, '/rosout', self.callback)
+		rclpy.spin(self.node)
+
+	def callback(self, msg):
+		temp_data = [None]*5
+		temp_data[0] = msg.level
+		temp_data[1] = msg.msg
+		temp_data[4] = str(datetime.datetime.now())[5:]
+		temp_data[3] = str(msg.name)+":"+str(msg.line)
+		self.data.emit(temp_data)
+'''
 
 class adms_subscriber(QThread):
 	sig_wheel = pyqtSignal(list)   # Wheel & Average Speed
@@ -654,6 +898,10 @@ class adms_subscriber(QThread):
 	sig_belt = pyqtSignal(bool)   # Driver Belt
 	sig_trunk = pyqtSignal(bool)   # Trunk
 	sig_door = pyqtSignal(list)   # Door
+
+	sig_ioniq = pyqtSignal(list)
+	sig_log = pyqtSignal(list)
+
 	def __init__(self):
 		super().__init__()
 		try:
@@ -663,18 +911,20 @@ class adms_subscriber(QThread):
 		self.node = rclpy.create_node("ADMS")
 		self.node.get_logger().info("ADMS : ADMS Initialize")
 	def __del__(self):
-		print("Command Job Done")
-		#commsdel = ". /opt/ros/dashing/setup.bash"
-		#subprocess.Popen(commsdel, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
-		#rclpy.shutdown()
+		#print("Command Job Done")
+		commsdel = ". /opt/ros/dashing/setup.bash"
+		subprocess.Popen(commsdel, stdin = subprocess.PIPE, shell = True, executable = '/bin/bash')
+		rclpy.shutdown()
 		self.wait()
 		self.quit()
 	def run(self):
+			sub = self.node.create_subscription(Log, '/rosout', self.callback)
 			sub2 = self.node.create_subscription(
 				Float32MultiArray,
 				'/Ioniq_info',
 				self.joint_callback)
 			rclpy.spin(self.node)
+
 	def joint_callback(self, msg : Float32MultiArray):
 		self.sig_wheel.emit(list(msg.data[19:]))
 		self.sig_apsbps.emit(list(msg.data))
@@ -687,6 +937,16 @@ class adms_subscriber(QThread):
 		self.sig_belt.emit(bool(list(msg.data)[13]))
 		self.sig_trunk.emit(bool(list(msg.data)[14]))
 		self.sig_door.emit(list(msg.data)[15:19])
+		#print('msg :', list(msg.data))
+		self.sig_ioniq.emit(list(msg.data))
+
+	def callback(self, msg : Log):
+		temp_data = [None]*5
+		temp_data[0] = msg.level
+		temp_data[1] = msg.msg
+		temp_data[4] = str(dt.now())[5:]
+		temp_data[3] = str(msg.name)+":"+str(msg.line)
+		self.sig_log.emit(temp_data)
 
 
 if __name__ == "__main__":

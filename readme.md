@@ -19,7 +19,7 @@
 $ . /opt/ros/dashing/setup.bash  # ros2
 $ python3 adam.py
 ```
-다음과 같이 login 창이 팝업된다. '097'과 같이 DB에 등록된 키를 입력하면 로그인이 가능하다.
+다음과 같이 login 창이 팝업된다. '093'과 같이 DB에 등록된 키를 입력하면 로그인이 가능하다.
 ![login](https://github.com/DGIST-ARTIV/ARTIV-ADAM/assets/48004826/79fd081c-b79c-405e-af09-a5def2815568)
 
 ## UI
