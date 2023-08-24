@@ -31,5 +31,7 @@
     <file>rdoorwhite.png</file>
     <file>closeddoorswhite.png</file>
     <file>beltOKwhite.png</file>
+    <file>steer.png</file>
+    <file>steer2.png</file>
   </qresource>
 </RCC>
